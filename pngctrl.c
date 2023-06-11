@@ -33,13 +33,13 @@ extern "C" {
 	}
 
 	// ビットマップ2次元配列確保
-	unsigned char ** alloc_map(IMAGEDATA* img)
+	png_bytepp alloc_map(IMAGEDATA* img)
 	{
 		int width = img->width;
 		int height = img->height;
 		int i;
 
-		img->map = malloc(sizeof(unsigned char*) * height);
+		img->map = (png_bytepp) malloc(sizeof(png_bytep) * height);
 		if (img->map == NULL)
 		{
 			return NULL;
@@ -47,7 +47,7 @@ extern "C" {
 
 		for (i = 0; i < height; i++)
 		{
-			img->map[i] = malloc(sizeof(unsigned char) * width);
+			img->map[i] = (png_bytep) malloc(sizeof(png_byte) * width);
 			if (img->map[i] == NULL)
 			{
 				return NULL;
@@ -194,25 +194,24 @@ extern "C" {
 		unsigned long   width, height;
 		int             bit_depth, color_type, interlace_type;
 		int				i, j;
-		png_bytepp		image;
+		png_bytepp		image_row;
 		png_bytepp		imagetmp;
-		png_bytep 		bptr;
-		pIMGBUF			img_ptr = NULL;
-		png_uint_32		ulRowBytes;
+		pIMGBUF			img_ptr;
+		png_uint_32		row_bytes;
 		png_uint_32		ulUnitBytes;
 		color_t         *pcolors;
+		png_byte 		c;
 
-		u_char*			imgp;
 		int				alc_sz;
-		unsigned int num_pal;
+		unsigned int	num_pal;
 
 //		png_bytep		pal_trns_p = NULL;
 		int				num_trns;
 
 		png_color_16p	trans_values = NULL;
 
-		u_char			*dest;
-		png_byte 		c;
+		png_bytep 		src;
+		png_bytep		dest;
 
 		// ファイルはPNGか？
 		if (png_sig_cmp((u_char *)pptr, (png_size_t)0, PNG_BYTES_TO_CHECK))
@@ -291,9 +290,9 @@ extern "C" {
 		  //   ほか
 
 		  // 横１ラインのバイト数
-		ulRowBytes = png_get_rowbytes(png_ptr, info_ptr);
+		row_bytes = png_get_rowbytes(png_ptr, info_ptr);
 		// １ドットのバイト数
-		ulUnitBytes = ulRowBytes / width;
+		ulUnitBytes = row_bytes / width;
 
 		// 横は4dotの倍数になるように
 /*
@@ -308,13 +307,13 @@ extern "C" {
 		// 16色(Packed)の場合にパッチする
 		if (ulUnitBytes == 0)
 		{
-			ulRowBytes *= 2;
+			row_bytes *= 2;
 		}
 
-		printf("num_pal=%d, width=%d, height=%d, ulRowBytes=%d, ulUnitBytes=%d\n", num_pal, width, height, ulRowBytes, ulUnitBytes);
+		printf("num_pal=%d, width=%d, height=%d, row_bytes=%d, ulUnitBytes=%d\n", num_pal, width, height, row_bytes, ulUnitBytes);
 
 		// 確保サイズ
-		alc_sz = (ulRowBytes * height) + (sizeof(color_t)* num_pal);
+		alc_sz = (row_bytes * height) + (sizeof(color_t)* num_pal);
 
 		// ビットマップを確保
 		img_ptr = (pIMGBUF)malloc(alc_sz);
@@ -353,37 +352,43 @@ extern "C" {
 		}
 
 		// 展開ポインタ配列を確保
-		image = (png_bytepp)malloc(height * sizeof(png_bytep));
-		imgp = img_ptr->raw;										// ビットマップへのポインタ
+		image_row = png_malloc(png_ptr, height * sizeof(png_bytep));
 
 		// 16色(Packed)以外の場合（通常）
 		if (ulUnitBytes != 0)
 		{
 			for (i = 0; i < height; i++)
 			{
-				image[i] = (png_bytep)(imgp + (i * ulRowBytes));
+				image_row[i] = png_malloc(png_ptr, width * sizeof(png_byte));
 			}
-			png_read_image(png_ptr, image);							// 画像データの展開
+			png_set_rows(png_ptr, info_ptr, image_row);
+			png_read_image(png_ptr, image_row);							// 画像データの展開
+			for (i = 0; i < height; i++)
+			{
+				memcpy((png_bytep)img_ptr->raw + (i * row_bytes), image_row[i], row_bytes);
+			}
+
 		}
 		else
 		{
 			// 16色(Packed)の場合
-			imagetmp = (png_bytepp)malloc(height * width / 2);
+			imagetmp = (png_bytepp) malloc(height * (width / 2 * sizeof(png_bytep)) );
 
 			for (i = 0; i < height; i++)
 			{
-				image[i] = (png_bytep)imagetmp + (i * (width / 2));
+				image_row[i] = png_malloc(png_ptr, width * sizeof(png_byte) / 2);
 			}
-			png_read_image(png_ptr, image);							// 画像データの展開
+			png_set_rows(png_ptr, info_ptr, image_row);
+			png_read_image(png_ptr, image_row);							// 画像データの展開
 
 			// 4bit → 8bit展開
 			for (j = 0; j < height; j++)
 			{
-				bptr = image[j];
-				dest = (png_bytep) imgp + (j * ulRowBytes);
+				src = (png_bytep) image_row[j];
+				dest = (png_bytep) img_ptr->raw + (j * row_bytes);
 				for (i = 0; i < width; i += 2)
 				{
-					c = *(bptr++);
+					c = *(src++);
 					*dest = (c >> 4);
 					*(dest+1) = (c & 0x0F);
 					dest += 2;
@@ -391,7 +396,10 @@ extern "C" {
 			}
 			free(imagetmp);
 		}
-		free(image);
+		for (i = 0; i < height; i++)
+			png_free(png_ptr, image_row[i]);
+
+		png_free(png_ptr, image_row);
 
 		png_destroy_read_struct(								// libpng構造体のメモリ解放
 			&png_ptr, &info_ptr, (png_infopp)NULL);
@@ -437,7 +445,7 @@ extern "C" {
 		png = (u_char *)malloc(fsize);
 		if (png == NULL)
 		{
-			printf("PngOpenFile: malloc(%d) failed\n", fsize);
+			printf("PngOpenFile: malloc(%d) failed\n", (int)fsize);
 			fclose(fp);
 			return NULL;
 		}
@@ -449,7 +457,7 @@ extern "C" {
 		// 全部読めなかった？
 		if (fsize != rbytes)
 		{
-			printf("PngOpenFile: fread(%d) failed\n", fsize);
+			printf("PngOpenFile: fread(%d) failed\n", (int)fsize);
 			return NULL;
 		}
 

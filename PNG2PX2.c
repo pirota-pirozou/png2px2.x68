@@ -115,9 +115,15 @@ void splitpath(const char *path, char *drive, char *dir, char *name, char *ext)
     char *extc;
 
     /* Copy path */
-    basec = strdup(path);
-    dirc = strdup(path);
-    extc = strdup(path);
+#ifdef _MSC_VER
+    basec = _strdup(path);
+    dirc = _strdup(path);
+    extc = _strdup(path);
+#else
+	basec = strdup(path);
+	dirc = strdup(path);
+	extc = strdup(path);
+#endif
 
     /* Get file name and directory */
     bname = basename(basec);
@@ -151,17 +157,18 @@ int main(int argc, char *argv[])
 	int i;
 	int ch;
 
-    char drive[ _MAX_DRIVE ];
-    char dir[ _MAX_DIR ];
-    char fname[ _MAX_FNAME ];
-    char ext[ _MAX_EXT ];
+	char drive[_MAX_DRIVE] = { 0 };
+	char dir[_MAX_DIR] = { 0 };
+	char fname[_MAX_FNAME] = { 0 };
+	char ext[_MAX_EXT] = { 0 };
 
 #ifdef ALLMEM
 	allmem();
 #endif
 
 	// コマンドライン解析
-	memset(infilename, 0, sizeof(infilename) );
+	memset(fname, 0, sizeof(fname));
+	memset(infilename, 0, sizeof(infilename));
 	memset(outfilename, 0, sizeof(outfilename) );
 	memset(patfilename, 0, sizeof(patfilename) );
 	memset(palfilename, 0, sizeof(palfilename) );
@@ -281,6 +288,13 @@ static int readjob(void)
 		return -1;
 	}
 
+	// テンポラリに出力
+	// * debug *
+	FILE* fp = fopen("img_ptr.bin", "wb");
+	fwrite(imgbuf, 1, sizeof(IMGBUF)+32768-4, fp);
+	fclose(fp);
+
+
 	return 0;
 }
 
@@ -292,10 +306,9 @@ static int cvjob(void)
 {
 	size_t a;
 	int err = 0;
-	u_char *imgraw = imgbuf->raw;									// カラーパレットの後ろから画像データ
-	u_char *pimg = NULL;
-	u_char *patptr = px2buf->sprpat;								// スプライトパターン出力バッファ
-	u_char *atrptr = px2buf + 1;									// アトリビュート出力バッファ
+	u_char *pimg;
+	u_char *patptr = (u_char *)px2buf->sprpat;								// スプライトパターン出力バッファ
+	u_char *atrptr = (u_char *)px2buf + 1;									// アトリビュート出力バッファ
 	int xl, yl;
 	int x, y;
 	color_t* imgpal = imgbuf->palette;
@@ -312,14 +325,14 @@ static int cvjob(void)
 			if ((xl & 15) == 0)
 			{
 				// アトリビュート書き込み
-				pimg = (u_char*)imgraw + (yl * width) + xl;
+				pimg = (u_char*)imgbuf->raw + (yl * width) + xl;
 				*atrptr = (((*pimg) & 0xF0) >> 4);
 				atrptr += 2;
 			}
 			// ピクセル変換
 			for (y = 0; y < 16; y++)
 			{
-				pimg = imgraw + ((yl+y) * width) + xl;
+				pimg = (u_char*)imgbuf->raw + ((yl+y) * width) + xl;
 				for (x = 0; x < 8; x += 2)
 				{
 					dot2 = (((*pimg) & 0x0F) << 4) | (*(pimg + 1) & 0x0F);

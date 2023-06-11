@@ -27,18 +27,18 @@ typedef struct {
 
 typedef struct
 {
-    int width;         // 幅
-    int height;        // 高さ
+    int width;                  // 幅
+    int height;                 // 高さ
     unsigned short color_type;  // 色表現の種別
     unsigned short palette_num; // カラーパレットの数
     color_t *palette;           // カラーパレットへのポインタ
-    unsigned char ** map;       // 画像データ
+    png_bytepp map;             // 画像データ
 } IMAGEDATA;
 
 typedef struct
 {
     color_t palette[256];       // カラーパレットへのポインタ
-    u_char raw[4];              // 画像データ
+    png_byte raw[4];            // 画像データ
 } IMGBUF, *pIMGBUF;
 
 
