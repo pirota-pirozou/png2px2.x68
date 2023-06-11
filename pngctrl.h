@@ -38,7 +38,7 @@ typedef struct
 typedef struct
 {
     color_t palette[256];       // カラーパレットへのポインタ
-    u_char raw[65536];          // 画像データ
+    u_char raw[4];              // 画像データ
 } IMGBUF, *pIMGBUF;
 
 

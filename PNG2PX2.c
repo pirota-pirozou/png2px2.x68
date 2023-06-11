@@ -31,7 +31,9 @@ typedef struct
 
 } PX2FILE, * pPX2FILE;
 
-static pPX2FILE outbuf = NULL;
+static pPX2FILE px2buf = NULL;									// PX2バッファ
+pIMGBUF imgbuf = NULL;
+
 
 static char infilename[256];
 static char outfilename[256];
@@ -42,8 +44,6 @@ static int main_result = 0;
 
 static int width;
 static int height;
-
-pIMGBUF imgbuf = NULL;
 
 static int opt_p = 0;												// べた書きオプション
 
@@ -236,13 +236,13 @@ int main(int argc, char *argv[])
 
 
 	// 出力バッファの確保
-	outbuf = (pPX2FILE) malloc(sizeof(PX2FILE));
-	if (outbuf == NULL)
+	px2buf = (pPX2FILE) malloc(sizeof(PX2FILE));
+	if (px2buf == NULL)
 	{
 		printf("出力バッファは確保できません\n");
 		goto cvEnd;
 	}
-	memset(outbuf, 0, sizeof(PX2FILE));
+	memset(px2buf, 0, sizeof(PX2FILE));
 
     // 変換処理
 	if (cvjob() < 0)
@@ -253,12 +253,12 @@ int main(int argc, char *argv[])
 cvEnd:
 	// 後始末
 	// PX2出力バッファ開放
-	if (outbuf != NULL)
+	if (px2buf != NULL)
 	{
-		free(outbuf);
+		free(px2buf);
 	}
 
-	// パックバッファ開放
+	// オフスクリーン開放
 	if (imgbuf != NULL)
 	{
 		free(imgbuf);
@@ -290,32 +290,21 @@ static int readjob(void)
 ///////////////////////////////
 static int cvjob(void)
 {
-	u_char *imgraw;
 	size_t a;
 	int err = 0;
-	u_char *pimg;
-	u_char *outptr;
-	u_char* atrptr;
+	u_char *imgraw = imgbuf->raw;									// カラーパレットの後ろから画像データ
+	u_char *pimg = NULL;
+	u_char *patptr = px2buf->sprpat;								// スプライトパターン出力バッファ
+	u_char *atrptr = px2buf + 1;									// アトリビュート出力バッファ
 	int xl, yl;
 	int x, y;
-	int i;
-	color_t* imgpal;
+	color_t* imgpal = imgbuf->palette;
 	color_t* paltmp;
 	FILE *fp;
 	unsigned short x68pal;
-	unsigned char dot2;
-
-	imgraw = (u_char*)imgbuf->raw;									// カラーパレットの後ろから画像データ
+	u_char dot2;
 
 	// パターン変換処理
-	outptr = outbuf->sprpat;										// スプライトパターン出力バッファ
-#ifdef BIG_ENDIAN
-	atrptr = (u_char*)outbuf + 0;									// アトリビュート出力バッファ
-#else
-	atrptr = (u_char*)outbuf + 1;									// アトリビュート出力バッファ
-#endif
-
-	pimg = NULL;
 	for (yl=0; yl<height; yl+=16)
 	{
 		for (xl=0; xl<width; xl+=8)
@@ -330,12 +319,12 @@ static int cvjob(void)
 			// ピクセル変換
 			for (y = 0; y < 16; y++)
 			{
-				pimg = (u_char*)imgraw + ((yl+y) * width) + xl;
+				pimg = imgraw + ((yl+y) * width) + xl;
 				for (x = 0; x < 8; x += 2)
 				{
 					dot2 = (((*pimg) & 0x0F) << 4) | (*(pimg + 1) & 0x0F);
 					pimg += 2;
-					*(outptr++) = dot2;
+					*(patptr++) = dot2;
 				} // x
 			} // y
 		} // xl
@@ -343,16 +332,15 @@ static int cvjob(void)
 	} // yl
 
 	// パレット変換
-	imgpal = (color_t *)(imgbuf->palette);
 	// GGGGG_RRRRR_BBBBB_I
-	for (i=0; i<256; i++)
+	for (x=0; x<256; x++)
 	{
-		paltmp = &imgpal[i];
+		paltmp = &imgpal[x];
 		x68pal = ((paltmp->g >> 3) << 11) | ((paltmp->r >> 3) << 6) | ((paltmp->b >> 3) << 1);
 #ifdef BIG_ENDIAN
-		outbuf->pal[i] = x68pal;
+		px2buf->pal[x] = x68pal;
 #else
-		outbuf->pal[i] = (x68pal>>8)|((x68pal & 0xFF) << 8);			// エンディアン変換
+		px2buf->pal[x] = (x68pal>>8)|((x68pal & 0xFF) << 8);			// エンディアン変換
 #endif
 	}
 
@@ -367,7 +355,7 @@ static int cvjob(void)
 		}
 
 		// PX2パターン出力
-		a = fwrite(outbuf, 1, sizeof(PX2FILE), fp);
+		a = fwrite(px2buf, 1, sizeof(PX2FILE), fp);
 		if (a != (sizeof(PX2FILE)))
 		{
 			printf("'%s' ファイルが正しく書き込めませんでした！\n", outfilename);
@@ -398,8 +386,8 @@ static int cvjob(void)
 
 		// PATパターン出力
 		err = 0;
-		a = fwrite(outbuf->sprpat, 1, sizeof(outbuf->sprpat), fp);
-		if (a != (sizeof(outbuf->sprpat)))
+		a = fwrite(px2buf->sprpat, 1, sizeof(px2buf->sprpat), fp);
+		if (a != (sizeof(px2buf->sprpat)))
 		{
 			printf("'%s' ファイルが正しく書き込めませんでした！\n", patfilename);
 			err++;
@@ -426,8 +414,8 @@ static int cvjob(void)
 
 		// PAL出力
 		err = 0;
-		a = fwrite(outbuf->pal, 1, sizeof(outbuf->pal), fp);
-		if (a != (sizeof(outbuf->pal)))
+		a = fwrite(px2buf->pal, 1, sizeof(px2buf->pal), fp);
+		if (a != (sizeof(px2buf->pal)))
 		{
 			printf("'%s' ファイルが正しく書き込めませんでした！\n", palfilename);
 			err++;
