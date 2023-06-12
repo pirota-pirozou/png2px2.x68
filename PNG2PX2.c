@@ -8,6 +8,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef __NEWLIB__
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 
 #include "png.h"
 #include "pngctrl.h"

@@ -2,9 +2,10 @@
 #include	<stdio.h>
 #include	<string.h>
 #include	<setjmp.h>
-
-//#define LEAN_AND_MEAN
-//#include	<Windows.h>
+#ifdef __NEWLIB__
+#include	<fcntl.h>
+#include	<unistd.h>
+#endif
 
 #include	"png.h"
 #include	"pngctrl.h"
@@ -204,7 +205,7 @@ extern "C" {
 		png_bytepp		imagetmp;
 
 		int				i;
-		int				y;	
+		int				y;
 		LPBITMAPINFO	dib_ptr = NULL;
 		png_uint_32		ulRowBytes;
 		png_uint_32		ulUnitBytes;
