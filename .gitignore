@@ -17,7 +17,11 @@ Thumbs.db
 *.obj
 *.o
 *.exe
+*.EXE
 *.bak
 *.x
+*.X
+*.X.elf
+*.X.elf.2
 *.PAT
 *.PAL

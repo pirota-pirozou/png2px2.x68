@@ -6,6 +6,7 @@ INCLUDE = -I./
 TARGET = $(notdir $(CURDIR))
 SRCDIR = ./
 OBJDIR = ./obj
+EXECUTABLE = ./PNG2PX2.exe
 
 ifeq ($(strip $(OBJDIR)),)
 OBJDIR = .
@@ -13,7 +14,7 @@ endif
 
 .PHONY: clean
 
-all: ./PNG2PX2.exe
+all: $(EXECUTABLE)
 
 SOURCES = $(wildcard $(SRCDIR)/*.c)
 OBJECTS1 = $(addprefix $(OBJDIR)/, PNG2PX2.o pngctrl.o)
@@ -27,6 +28,4 @@ $(OBJDIR)/%.o: $(SRCDIR)/%.c
 	$(CC) $(CFLAGS) $(INCLUDE) -o $@ -c $<
 
 clean:
-	rm -f $(OBJECTS1) $(DEPENDS)
-
-# DO NOT DELETE THIS LINE – make depend depends on it.
+	rm -f $(EXECUTABLE) $(OBJECTS1) $(DEPENDS)

@@ -200,13 +200,17 @@ extern "C" {
 		png_infop       info_ptr;
 		unsigned long   width, height;
 		int             bit_depth, color_type, interlace_type;
-		u_char**		image;
+		png_bytepp		image;
+		png_bytepp		imagetmp;
+
 		int				i;
+		int				y;	
 		LPBITMAPINFO	dib_ptr = NULL;
 		png_uint_32		ulRowBytes;
 		png_uint_32		ulUnitBytes;
 		RGBQUAD*		pcolors;
 		png_bytep		src;
+		png_bytep		dest;
 		png_byte		c;
 
 		unsigned char*	dibp;
@@ -337,7 +341,7 @@ extern "C" {
 		if (dib_ptr->bmiHeader.biCompression != BI_BITFIELDS)
 		{
 			pcolors = (RGBQUAD*)dibp;                                     // RGBQUADへのポインタ
-			dibp = (void*)((u_char*)dibp + (sizeof(RGBQUAD) * dib_ptr->bmiHeader.biClrUsed));
+			dibp =(u_char*)dibp + (sizeof(RGBQUAD) * dib_ptr->bmiHeader.biClrUsed);
 		}
 		else
 		{
@@ -360,35 +364,34 @@ extern "C" {
 		}
 
 		// 展開ポインタ配列を確保
-		image = malloc(height * sizeof(png_bytep));
+		image = (png_bytepp) malloc(height * sizeof(png_bytep));
 
 		// 16色(Packed)以外の場合（通常）
 		if (ulUnitBytes != 0)
 		{
 			for (i = 0; i < height; i++) {
-				image[i] = (u_char *)dibp + (i * ulRowBytes);
+				image[i] = (png_bytep) dibp + (i * ulRowBytes);
 			}
 			png_read_image(png_ptr, image);							// 画像データの展開
 		}
 		else
 		{
 			// 16色(Packed)の場合
-			png_bytepp imagetmp = (png_bytepp)malloc(height * width / 2);
+			imagetmp = malloc(height * width / 2);
 
 			for (i = 0; i < height; i++) {
-				image[i] = (u_char*)imagetmp + (i * (width / 2));
+				image[i] = (png_bytep) imagetmp + (i * (width / 2));
 			}
 			png_read_image(png_ptr, image);							// 画像データの展開
 
 			// 4bit → 8bit展開
-			unsigned char* dest;
-			for (int y = 0; y < height; y++)
+			for (y = 0; y < height; y++)
 			{
-				src = image[y];
-				dest = (u_char*)dibp + (y * ulRowBytes);
-				for (int x = 0; x < width; x += 2)
+				src = (png_bytep) image[y];
+				dest = (png_bytep) dibp + (y * ulRowBytes);
+				for (i = 0; i < width; i += 2)
 				{
-					c = *src;
+					c = (png_byte) (*src);
 					*dest = (c >> 4);
 					*(dest + 1) = (c & 0x0F);
 					src++;
