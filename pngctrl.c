@@ -1,6 +1,10 @@
 #include	<stdlib.h>
 #include	<stdio.h>
 #include	<string.h>
+#include	<setjmp.h>
+
+//#define LEAN_AND_MEAN
+//#include	<Windows.h>
 
 #include	"png.h"
 #include	"pngctrl.h"
@@ -17,6 +21,8 @@ extern "C" {
 	static int				png_trans_num;				// 透明色の数
 	static png_color_16		png_trans_col;				// 透明色
 	static png_colorp		palette;                    // パレット
+
+
 
 	// png読み込みストリーム
 	static void libReadStream(png_structp png_ptr, png_bytep data, png_size_t length)
@@ -186,61 +192,50 @@ extern "C" {
 		return result;
 	}
 
-	// pngを開きIMGに変換
-	pIMGBUF pngptr2img(u_char *pptr)
+
+	// pngを開きDIBに変換
+	PDIB pngptr2dib(u_char* pptr)
 	{
 		png_structp     png_ptr;
 		png_infop       info_ptr;
 		unsigned long   width, height;
 		int             bit_depth, color_type, interlace_type;
-		int				i, j;
-		png_bytepp		image_row;
-		png_bytepp		imagetmp;
-		pIMGBUF			img_ptr;
-		png_uint_32		row_bytes;
+		u_char**		image;
+		int				i;
+		LPBITMAPINFO	dib_ptr = NULL;
+		png_uint_32		ulRowBytes;
 		png_uint_32		ulUnitBytes;
-		color_t         *pcolors;
-		png_byte 		c;
+		RGBQUAD*		pcolors;
+		png_bytep		src;
+		png_byte		c;
 
+		unsigned char*	dibp;
 		int				alc_sz;
 		unsigned int	num_pal;
 
-//		png_bytep		pal_trns_p = NULL;
+		png_bytep		pal_trns_p = NULL;
 		int				num_trns;
 
 		png_color_16p	trans_values = NULL;
 
-		png_bytep 		src;
-		png_bytep		dest;
-
 		// ファイルはPNGか？
-		if (png_sig_cmp((u_char *)pptr, (png_size_t)0, PNG_BYTES_TO_CHECK))
-		{
-			printf("Not png file\n");
+		if (png_sig_cmp((u_char*)pptr, (png_size_t)0, PNG_BYTES_TO_CHECK))
 			return NULL;
-		}
 
 		//
 		png_ptr = png_create_read_struct(							// png_ptr構造体を確保・初期化
 			PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
 		if (png_ptr == NULL)
 		{
-			printf("png_create_read_struct() error\n");
 			return NULL;
 		}
 
 		info_ptr = png_create_info_struct(png_ptr);					// info_ptr構造体を確保・初期化
 		if (info_ptr == NULL)
 		{
-			printf("png_create_info_struct() error\n");
 			png_destroy_read_struct(&png_ptr, NULL, NULL);
 			return NULL;
 		}
-
-		if (setjmp(png_jmpbuf(png_ptr)))
-		{
-		    return NULL;
-  		}
 
 		libInitStream(pptr);										// ストリームを初期化
 		png_set_read_fn(png_ptr, NULL, libReadStream);				// libpngにストリーム処理を設定
@@ -290,42 +285,33 @@ extern "C" {
 		  //   ほか
 
 		  // 横１ラインのバイト数
-		row_bytes = png_get_rowbytes(png_ptr, info_ptr);
+		ulRowBytes = png_get_rowbytes(png_ptr, info_ptr);
 		// １ドットのバイト数
-		ulUnitBytes = row_bytes / width;
+		ulUnitBytes = ulRowBytes / width;
 
 		// 横は4dotの倍数になるように
-/*
 		if (width & 3)
 		{
-			int adj = (4 - (width & 3));
-			width += adj;
-			ulRowBytes += adj * ulUnitBytes;
+			i = (4 - (width & 3));
+			width += i;
+			ulRowBytes += i * ulUnitBytes;
 		}
-*/
 
 		// 16色(Packed)の場合にパッチする
 		if (ulUnitBytes == 0)
 		{
-			row_bytes *= 2;
+			ulRowBytes *= 2;
 		}
-
-		printf("num_pal=%d, width=%d, height=%d, row_bytes=%d, ulUnitBytes=%d\n", num_pal, width, height, row_bytes, ulUnitBytes);
 
 		// 確保サイズ
-		alc_sz = (row_bytes * height) + (sizeof(color_t)* num_pal);
+		alc_sz = sizeof(png_byte) * ulRowBytes * height + sizeof(BITMAPINFOHEADER) +
+			sizeof(RGBQUAD) * num_pal;
 
 		// ビットマップを確保
-		img_ptr = (pIMGBUF)malloc(alc_sz);
-		if (img_ptr == NULL)
-		{
-			printf("pngptr2img(): malloc error\n");
-			png_destroy_read_struct(&png_ptr, NULL, NULL);
-			return NULL;
-		}
+		dib_ptr = malloc(alc_sz);
 
-		// img_ptr をクリア
-		memset(img_ptr, 0, alc_sz);
+		// BITMAPINFOHEADER をクリア
+		memset((BITMAPINFOHEADER*)dib_ptr, 0, sizeof(BITMAPINFOHEADER));
 
 		// 透過色チェック
 		png_trans_num = 0;
@@ -335,97 +321,109 @@ extern "C" {
 			png_trans_col = *trans_values;				// 透明色
 		}
 
-		pcolors = (color_t *)img_ptr->palette;          // color_tへのポインタ
+		// ヘッダに書き込み
+		dib_ptr->bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+		dib_ptr->bmiHeader.biBitCount = (color_type == PNG_COLOR_TYPE_PALETTE) ? 8 : 24;
+		dib_ptr->bmiHeader.biWidth = width;
+		dib_ptr->bmiHeader.biHeight = height;
+		dib_ptr->bmiHeader.biPlanes = 1;
+		dib_ptr->bmiHeader.biCompression = BI_RGB;
+		dib_ptr->bmiHeader.biSizeImage = (ulRowBytes * height);
+		dib_ptr->bmiHeader.biClrUsed = num_pal;
+
+		//
+		dibp = (u_char*)dib_ptr + sizeof(BITMAPINFOHEADER);
+
+		if (dib_ptr->bmiHeader.biCompression != BI_BITFIELDS)
+		{
+			pcolors = (RGBQUAD*)dibp;                                     // RGBQUADへのポインタ
+			dibp = (void*)((u_char*)dibp + (sizeof(RGBQUAD) * dib_ptr->bmiHeader.biClrUsed));
+		}
+		else
+		{
+			pcolors = NULL;
+			dibp = (void*)((u_char*)dibp + 3);
+		}
 
 		// パレットコピー
 		if (color_type == PNG_COLOR_TYPE_PALETTE)
 		{
 			for (i = 0; i < num_pal; i++)
 			{
-				pcolors->r = palette->red;
-				pcolors->g = palette->green;
-				pcolors->b = palette->blue;
-				pcolors->a = 255;
+				pcolors->rgbRed = palette->red;
+				pcolors->rgbGreen = palette->green;
+				pcolors->rgbBlue = palette->blue;
+				pcolors->rgbReserved = 0;
 				palette++;
 				pcolors++;
 			}
 		}
 
 		// 展開ポインタ配列を確保
-		image_row = png_malloc(png_ptr, height * sizeof(png_bytep));
+		image = malloc(height * sizeof(png_bytep));
 
 		// 16色(Packed)以外の場合（通常）
 		if (ulUnitBytes != 0)
 		{
-			for (i = 0; i < height; i++)
-			{
-				image_row[i] = png_malloc(png_ptr, width * sizeof(png_byte));
+			for (i = 0; i < height; i++) {
+				image[i] = (u_char *)dibp + (i * ulRowBytes);
 			}
-			png_set_rows(png_ptr, info_ptr, image_row);
-			png_read_image(png_ptr, image_row);							// 画像データの展開
-			for (i = 0; i < height; i++)
-			{
-				memcpy((png_bytep)img_ptr->raw + (i * row_bytes), image_row[i], row_bytes);
-			}
-
+			png_read_image(png_ptr, image);							// 画像データの展開
 		}
 		else
 		{
 			// 16色(Packed)の場合
-			imagetmp = (png_bytepp) malloc(height * (width / 2 * sizeof(png_bytep)) );
+			png_bytepp imagetmp = (png_bytepp)malloc(height * width / 2);
 
-			for (i = 0; i < height; i++)
-			{
-				image_row[i] = png_malloc(png_ptr, width * sizeof(png_byte) / 2);
+			for (i = 0; i < height; i++) {
+				image[i] = (u_char*)imagetmp + (i * (width / 2));
 			}
-			png_set_rows(png_ptr, info_ptr, image_row);
-			png_read_image(png_ptr, image_row);							// 画像データの展開
+			png_read_image(png_ptr, image);							// 画像データの展開
 
 			// 4bit → 8bit展開
-			for (j = 0; j < height; j++)
+			unsigned char* dest;
+			for (int y = 0; y < height; y++)
 			{
-				src = (png_bytep) image_row[j];
-				dest = (png_bytep) img_ptr->raw + (j * row_bytes);
-				for (i = 0; i < width; i += 2)
+				src = image[y];
+				dest = (u_char*)dibp + (y * ulRowBytes);
+				for (int x = 0; x < width; x += 2)
 				{
-					c = *(src++);
+					c = *src;
 					*dest = (c >> 4);
-					*(dest+1) = (c & 0x0F);
+					*(dest + 1) = (c & 0x0F);
+					src++;
 					dest += 2;
 				}
 			}
 			free(imagetmp);
 		}
-		for (i = 0; i < height; i++)
-			png_free(png_ptr, image_row[i]);
-
-		png_free(png_ptr, image_row);
+		free(image);
 
 		png_destroy_read_struct(								// libpng構造体のメモリ解放
 			&png_ptr, &info_ptr, (png_infopp)NULL);
 
-		return img_ptr;
+		return (PDIB)dib_ptr;
 	}
 
 	// PNGOpenFile
-	pIMGBUF PngOpenFile(const char* szFile)
+	PDIB PngOpenFile(const char* szFile)
 	{
-		pIMGBUF pimg = NULL;
+		PDIB pdib = NULL;
 		u_char* png = NULL;
 
-		size_t fsize = 0;
+		size_t fsize;
 		size_t rbytes;
 
-		FILE *fp;
+		FILE* fp;
 
 		// ファイル名はPNGデータを指すポインタか？
-		if (!png_sig_cmp((const u_char *)szFile, (png_size_t)0, PNG_BYTES_TO_CHECK))
+		if (!png_sig_cmp((const u_char*)szFile, (png_size_t)0, PNG_BYTES_TO_CHECK))
 		{
 			printf("PngOpenFile: png_sig_cmp(is Pointer)\n");
 			// もしそうだったら直接展開
-			pimg = pngptr2img((u_char *)szFile);
+			pdib = pngptr2dib((u_char*)szFile);
 
-			return pimg;
+			return pdib;
 		}
 
 		printf("PngOpenFile(%s)\n", szFile);
@@ -442,7 +440,7 @@ extern "C" {
 		fseek(fp, 0L, SEEK_SET);							// ファイルの先頭に
 
 		// メモリ確保
-		png = (u_char *)malloc(fsize);
+		png = (u_char*)malloc(fsize);
 		if (png == NULL)
 		{
 			printf("PngOpenFile: malloc(%d) failed\n", (int)fsize);
@@ -461,13 +459,13 @@ extern "C" {
 			return NULL;
 		}
 
-		// PNGからimgに展開
-		pimg = pngptr2img(png);
+		// PNGからDIBに展開
+		pdib = pngptr2dib(png);
 
 		// PNGイメージ開放
 		free(png);
 
-		return pimg;
+		return pdib;
 	}
 
 #ifdef __cplusplus

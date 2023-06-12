@@ -14,9 +14,43 @@ extern "C" {
 
 #define COLOR_TYPE_INDEX 0   // インデックスカラー
 
-#ifndef u_char
-#define u_char unsigned char
-#endif
+typedef unsigned char u_char;
+
+typedef unsigned int   LONG;
+typedef unsigned int   DWORD;
+typedef unsigned short WORD;
+typedef unsigned char  BYTE;
+
+typedef struct _tRGBQUAD {
+    BYTE rgbBlue;
+    BYTE rgbGreen;
+    BYTE rgbRed;
+    BYTE rgbReserved;
+} RGBQUAD;
+
+#define BI_RGB        0
+#define BI_BITFIELDS  3
+
+typedef struct _tBITMAPINFOHEADER {
+    DWORD biSize;
+    LONG  biWidth;
+    LONG  biHeight;
+    WORD  biPlanes;
+    WORD  biBitCount;
+    DWORD biCompression;
+    DWORD biSizeImage;
+    LONG  biXPelsPerMeter;
+    LONG  biYPelsPerMeter;
+    DWORD biClrUsed;
+    DWORD biClrImportant;
+} BITMAPINFOHEADER, * LPBITMAPINFOHEADER, * PBITMAPINFOHEADER;
+
+typedef LPBITMAPINFOHEADER		PDIB;
+
+typedef struct _tBITMAPINFO {
+    BITMAPINFOHEADER bmiHeader;
+    RGBQUAD          bmiColors[1];
+} BITMAPINFO, * LPBITMAPINFO, * PBITMAPINFO;
 
 typedef struct {
     unsigned char r;        // Red
@@ -35,23 +69,15 @@ typedef struct
     png_bytepp map;             // 画像データ
 } IMAGEDATA;
 
-typedef struct
-{
-    color_t palette[256];       // カラーパレットへのポインタ
-    png_byte raw[4];            // 画像データ
-} IMGBUF, *pIMGBUF;
-
-
-unsigned char** alloc_map(IMAGEDATA* img);
+u_char** alloc_map(IMAGEDATA* img);
 void free_map(IMAGEDATA* img);
-
 
 int writepng(const char* filename, IMAGEDATA* img);
 int write_png_stream(FILE* fp, IMAGEDATA* img);
 
+PDIB pngptr2dib(u_char* pptr);
 
-pIMGBUF pngptr2img(u_char *pptr);
-pIMGBUF PngOpenFile(const char* szFile);
+PDIB PngOpenFile(const char* szFile);
 
 //////////////////////////////////////////////////////////////////////////////////////////
 

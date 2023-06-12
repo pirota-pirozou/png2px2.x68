@@ -32,8 +32,7 @@ typedef struct
 } PX2FILE, * pPX2FILE;
 
 static pPX2FILE px2buf = NULL;									// PX2バッファ
-pIMGBUF imgbuf = NULL;
-
+PDIB dibbuf = NULL;
 
 static char infilename[256];
 static char outfilename[256];
@@ -41,9 +40,6 @@ static char patfilename[256];
 static char palfilename[256];
 
 static int main_result = 0;
-
-static int width;
-static int height;
 
 static int opt_p = 0;												// べた書きオプション
 
@@ -266,9 +262,9 @@ cvEnd:
 	}
 
 	// オフスクリーン開放
-	if (imgbuf != NULL)
+	if (dibbuf != NULL)
 	{
-		free(imgbuf);
+		free(dibbuf);
 	}
 
 	return main_result;
@@ -281,8 +277,8 @@ cvEnd:
 //      -1 = エラー
 static int readjob(void)
 {
-	imgbuf = PngOpenFile(infilename);
-	if (imgbuf == NULL)
+	dibbuf = PngOpenFile((const char*)infilename);
+	if (dibbuf == NULL)
 	{
 		printf("Can't open '%s'.\n", infilename);
 		return -1;
@@ -290,10 +286,11 @@ static int readjob(void)
 
 	// テンポラリに出力
 	// * debug *
+/*
 	FILE* fp = fopen("img_ptr.bin", "wb");
-	fwrite(imgbuf, 1, sizeof(IMGBUF)+32768-4, fp);
+	fwrite(dibbuf, 1, sizeof(IMGBUF)+32768-4, fp);
 	fclose(fp);
-
+ */
 
 	return 0;
 }
@@ -304,40 +301,47 @@ static int readjob(void)
 ///////////////////////////////
 static int cvjob(void)
 {
+	BITMAPINFOHEADER* bi;
 	size_t a;
-	int err = 0;
-	u_char *pimg;
-	u_char *patptr = (u_char *)px2buf->sprpat;								// スプライトパターン出力バッファ
-	u_char *atrptr = (u_char *)px2buf + 1;									// アトリビュート出力バッファ
-	int xl, yl;
+	u_char* pimg;
+	u_char* outptr;
+	u_char* atrptr;
+	FILE* fp;
 	int x, y;
-	color_t* imgpal = imgbuf->palette;
-	color_t* paltmp;
-	FILE *fp;
-	unsigned short x68pal;
+	int xl, yl;
+	RGBQUAD* paltmp;
+	WORD x68pal;
 	u_char dot2;
+	int err = 0;
+	RGBQUAD* dibpal;
+
+	bi = (BITMAPINFOHEADER*)dibbuf;
 
 	// パターン変換処理
-	for (yl=0; yl<height; yl+=16)
+	outptr = px2buf->sprpat;										// スプライトパターン出力バッファ
+	atrptr = (u_char*)px2buf + 1;									// アトリビュート出力バッファ
+
+	pimg = NULL;
+	for (yl = 0; yl < bi->biHeight; yl += 16)
 	{
-		for (xl=0; xl<width; xl+=8)
+		for (xl = 0; xl < bi->biWidth; xl += 8)
 		{
 			if ((xl & 15) == 0)
 			{
 				// アトリビュート書き込み
-				pimg = (u_char*)imgbuf->raw + (yl * width) + xl;
-				*atrptr = (((*pimg) & 0xF0) >> 4);
+				pimg = (u_char*)dibbuf + (sizeof(BITMAPINFOHEADER) + sizeof(RGBQUAD) * bi->biClrUsed) + (yl * bi->biWidth) + xl;
+				*atrptr = (((*pimg) & 0xF0) >> 4); // エンディアン考慮
 				atrptr += 2;
 			}
 			// ピクセル変換
 			for (y = 0; y < 16; y++)
 			{
-				pimg = (u_char*)imgbuf->raw + ((yl+y) * width) + xl;
+				pimg = (u_char*)dibbuf + (sizeof(BITMAPINFOHEADER) + sizeof(RGBQUAD) * bi->biClrUsed) + ((yl + y) * bi->biWidth) + xl;
 				for (x = 0; x < 8; x += 2)
 				{
 					dot2 = (((*pimg) & 0x0F) << 4) | (*(pimg + 1) & 0x0F);
 					pimg += 2;
-					*(patptr++) = dot2;
+					*(outptr++) = dot2;
 				} // x
 			} // y
 		} // xl
@@ -345,11 +349,12 @@ static int cvjob(void)
 	} // yl
 
 	// パレット変換
+	dibpal = (RGBQUAD*)((u_char*)dibbuf + sizeof(BITMAPINFOHEADER));
 	// GGGGG_RRRRR_BBBBB_I
 	for (x=0; x<256; x++)
 	{
-		paltmp = &imgpal[x];
-		x68pal = ((paltmp->g >> 3) << 11) | ((paltmp->r >> 3) << 6) | ((paltmp->b >> 3) << 1);
+		paltmp = &dibpal[x];
+		x68pal = ((paltmp->rgbGreen >> 3) << 11) | ((paltmp->rgbRed >> 3) << 6) | ((paltmp->rgbBlue >> 3) << 1);
 #ifdef BIG_ENDIAN
 		px2buf->pal[x] = x68pal;
 #else
