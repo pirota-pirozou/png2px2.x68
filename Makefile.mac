@@ -1,0 +1,35 @@
+CC = gcc
+RM = rm -f
+CFLAGS = -Wall -Os # -finput-charset=SHIFT_JIS
+LDFLAGS = -lz -lpng
+LIBS =
+INCLUDE = -I./
+TARGET = $(notdir $(CURDIR))
+SRCDIR = ./
+OBJDIR = ./obj
+EXECUTABLE = ./PNG2PX2
+
+ifeq ($(strip $(OBJDIR)),)
+OBJDIR = .
+endif
+
+.PHONY: clean
+
+all: $(EXECUTABLE)
+
+SOURCES = $(wildcard $(SRCDIR)/*.c)
+OBJECTS1 = $(addprefix $(OBJDIR)/, PNG2PX2.o pngctrl.o)
+DEPENDS = $(OBJECTS1:.o=.d)
+
+PNG2PX2: $(OBJECTS1) $(LIBS)
+	$(CC) -o $@ $^ $(LDFLAGS)
+
+$(OBJDIR)/%.o: $(SRCDIR)/%.c
+	@[ -d $(OBJDIR) ] || mkdir -p $(OBJDIR)
+	iconv -t UTF-8 -f cp932 $< > mac_$<
+#	$(CC) $(CFLAGS) $(INCLUDE) -o $@ -c $<
+	$(CC) $(CFLAGS) $(INCLUDE) -o $@ -c mac_$<
+	$(RM) mac_$<
+
+clean:
+	$(RM) $(EXECUTABLE) $(OBJECTS1) $(DEPENDS)
