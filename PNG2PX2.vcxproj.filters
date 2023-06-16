@@ -23,4 +23,8 @@
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
   </ItemGroup>
+  <ItemGroup>
+    <None Include="common.props" />
+    <None Include="libset.props" />
+  </ItemGroup>
 </Project>
